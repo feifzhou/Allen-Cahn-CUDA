@@ -7,23 +7,33 @@
 #include <fstream>
 #include <cmath>
 
+#ifndef BINARY_OUTPUT
 #include <vtkVersion.h>
 #include <vtkSmartPointer.h>
 #include <vtkXMLStructuredGridWriter.h>
 #include <vtkStructuredGrid.h>
 #include <vtkPointData.h>
 #include <vtkDoubleArray.h>
+#endif
 
 // set a 3D volume
 // To compile it with nvcc execute: nvcc -O2 -o set3d set3d.cu
 //define the data set size (cubic volume)
-#define DATAXSIZE 600
-#define DATAYSIZE 600
-#define DATAZSIZE 600
+#define DATAXSIZE 200
+#define DATAYSIZE 200
+#define DATAZSIZE 200
 //define the chunk sizes that each threadblock will work on
 
 using namespace std;
 
+#ifdef BINARY_OUTPUT
+void write_output_vtk(double c[][DATAYSIZE][DATAXSIZE], int t, int nx, int ny, int nz, string output, string variableName)
+{
+    string name = "./out/" + output + variableName+ "_" + to_string(t) + ".bin";
+    std::ofstream ofile(name, std::ios::binary);
+    ofile.write((char*) c, sizeof(double)*DATAXSIZE*DATAYSIZE*DATAZSIZE);
+}
+#else
 vtkSmartPointer<vtkDoubleArray> convertArrayToVTK(double phi[][DATAYSIZE][DATAXSIZE], char* name)
 {
 
@@ -96,6 +106,7 @@ void writeVTKFile(std::vector<vtkSmartPointer<vtkDoubleArray>> Arrays, vtkSmartP
   writer->Update();
 
 }
+#endif
 
 // for cuda error checking
 #define cudaCheckErrors(msg) \
@@ -385,7 +396,9 @@ int main(int argc, char *argv[])
     double a2 = 0.64;
     double lambda = (W0*a1)/(d0);
     double tau0 = ((W0*W0*W0*a1*a2)/(d0*D)) + ((W0*W0*beta0)/(d0));
+#ifndef BINARY_OUTPUT
     vtkSmartPointer<vtkPoints> points = createVTKGrid();
+#endif
     cudaSetDevice(0.0);
     typedef double nRarray[DATAYSIZE][DATAXSIZE];
     const int BLOCK_SIZE = 1024;
@@ -453,12 +466,17 @@ int main(int argc, char *argv[])
     initializationPhi(phi_host,r0);
     initializationU(u_host,r0,delta);
 
+#ifdef BINARY_OUTPUT
+    write_output_vtk(phi_host,0,nx,ny,nz,"output","phi");
+    write_output_vtk(u_host,0,nx,ny,nz,"output","u");
+#else
     std::vector<vtkSmartPointer<vtkDoubleArray>> ArraysInitial;
 
     ArraysInitial.push_back(convertArrayToVTK(phi_host,"phi"));
     ArraysInitial.push_back(convertArrayToVTK(u_host,"u"));
 
     writeVTKFile(ArraysInitial,points,0);
+#endif
 
     cudaMemcpyAsync(d_phiold, phi_host, ((nx*ny*nz)*sizeof(double)), cudaMemcpyHostToDevice);
     cudaCheckErrors("CUDA memcpy failure");
@@ -505,12 +523,17 @@ int main(int argc, char *argv[])
      cudaMemcpyAsync(u_host, d_unew, ((nx*ny*nz)*sizeof(double)), cudaMemcpyDeviceToHost);
      cudaCheckErrors("CUDA memcpy failure");
 
+#ifdef BINARY_OUTPUT
+    write_output_vtk(phi_host,t,nx,ny,nz,"output","phi");
+    write_output_vtk(u_host,t,nx,ny,nz,"output","u");
+#else
      std::vector<vtkSmartPointer<vtkDoubleArray>> Arrays;
 
      Arrays.push_back(convertArrayToVTK(phi_host,"phi"));
      Arrays.push_back(convertArrayToVTK(u_host,"u"));
 
      writeVTKFile(Arrays,points,t);
+#endif
 
     }
     
